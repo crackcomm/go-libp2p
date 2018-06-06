@@ -156,6 +156,4 @@ sent). So, the *polite* way to close a connection is to call `Close` and then
 read from the connection until you see an EOF from the other end (possibly
 timing out and resetting the stream if the other side doesn't respond).
 
-Calling `Close` on a libp2p stream closes stream for writing but not for
-reading. That means that the stream isn't full
-closes *their* end.
+TODO...
