@@ -4,7 +4,7 @@
 
 We're pleased to announce go-libp2p 6.0.0. This release includes a massive
 refactor of go-libp2p that paves the way for new transports such as QUIC.
-Unfortunately, as it is a sweeping change, there are some breaking changes,
+Unfortunately, as it is broad sweeping, there are some breaking changes,
 *especially* for maintainers of custom transports.
 
 Below, we cover the changes you'll likely care about.
