@@ -34,6 +34,29 @@ and WebSocket transports and the transport interface documentation:
 * [WebSocket Transport](https://github.com/libp2p/go-ws-transport)
 * [Transport Interface](https://godoc.org/github.com/libp2p/go-libp2p-transport)
 
+
+#### Deprecated Packages
+
+This release sees the deprecation of a few packages:
+
+* [go-peerstream](https://github.com/libp2p/go-peerstream) has been deprecated
+  and all functionality has been merged into `go-libp2p-swarm`. go-peerstream
+  was written as a general-purpose (not libp2p specific) listener, connection,
+  and stream manager. However, this package caused more problems than it solved
+  and was incompatible with the new transport interface.
+* [go-libp2p-interface-conn](https://github.com/libp2p/go-libp2p-interface-conn)
+  has been deprecated. These interfaces to bridge the gap between transport-level
+  connections and [go-libp2p-net](https://github.com/libp2p/go-libp2p-net)
+  connections however, now that transport connections are fully
+  multiplexed/encrypted, this is no longer needed.
+* [go-libp2p-conn](https://github.com/libp2p/go-libp2p-conn) has also been
+  deprecated and most of the functionality has been moved to
+  [go-libp2p-transport-upgrader](https://github.com/libp2p/go-libp2p-transport-upgrader).
+  This package used to provide connection "upgrade" logic for upgrading
+  transport-level connections to go-libp2p-interface-conn connections however,
+  transport-level connections now provide the required functionality out of the
+  box.
+
 #### go-addr-util
 
 In go-addr-util, we've removed the `SupportedTransportStrings` and
