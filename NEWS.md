@@ -3,7 +3,7 @@
 ## 6.0.0
 
 We're pleased to announce go-libp2p 6.0.0. This release includes a massive
-refactor of go-libp2p that paves the way for new transports such as QUICK.
+refactor of go-libp2p that paves the way for new transports such as QUIC.
 Unfortunately, as it is a sweeping change, there are some breaking changes,
 *especially* for maintainers of custom transports.
 
@@ -76,8 +76,8 @@ for details.
 
 #### Notifications
 
-This release brings new, performant, easy to understand guarantees around libp2p
-connect/disconnect event ordering:
+This release brings performance improvements and easy to reason about ordering
+guarantees libp2p connect/disconnect events:
 
 1. For any given connection/stream, libp2p will wait for all connect/open event
    handlers to finish exit before triggering a disconnect/close event for the
@@ -94,9 +94,11 @@ What does this mean for end users? Well:
    should "just work" and should never go negative.
 2. Under heavy connect/disconnect loads, connecting to new peers should be
    faster (usually).
+   
+For those interested in the history of this issue, ...
 
 In the past, (dis)connect and stream open/close notifications have been a bit of
-a pain point. For a long time, they were fired of in parallel and one could, for
+a pain point. For a long time, they were fired off in parallel and one could, for
 example, process a disconnect notification before a connect notification (we had
 to support *negative* ref-counts in several places to account for this).
 
@@ -115,6 +117,9 @@ Worse, this serial delivery guarantee didn't actually provide us with an
 happen before we even *started* to fire the connect event. The situation was
 slightly better than before because the events couldn't overlap but still far
 from optimal.
+
+However, this has all been resolved now. From now on, you'll never receive a
+disconnect event before a connect event.
 
 #### Conn.GetStreams Signature Change
 
@@ -149,11 +154,79 @@ TL;DR: Please use the libp2p constructor.
 
 ### Zombie Streams
 
-libp2p streams provide two "close" methods: `Close` and `Reset`. `Close` closes
-the stream for writing but leaves it open for reading. `Reset` "kills" the
-stream (canceling any in-progress writes and any buffered data waiting to be
-sent). So, the *polite* way to close a connection is to call `Close` and then
-read from the connection until you see an EOF from the other end (possibly
-timing out and resetting the stream if the other side doesn't respond).
+From this release on, when you're done with a stream, you must either call
+`Reset` on it (in case of an error) or close it and read an EOF (or some other
+error). Otherwise, libp2p can't determine if the stream is *actually* closed and
+will hang onto it indefinitely.
 
-TODO...
+To make properly closing streams a bit easier, we've added two methods to
+[go-libp2p-net](https://godoc.org/github.com/libp2p/go-libp2p-net): `AwaitEOF`
+and `FullClose`.
+
+* `AwaitEOF(stream)` tries to read a single byte from the stream. If `Read`
+returns an EOF, `AwaitEOF` returns success. Otherwise, if `Read` either reads
+some data or returns some other error, `AwaitEOF` resets the stream and returns
+an error. To avoid waiting indefinitely, `AwaitEOF` resets the stream
+unconditionally after 1 minute.
+* `FullClose(stream)` is a convenience function that closes the stream and then
+calls `AwaitEOF` on it.
+
+Like with libp2p notifications, this issue has a bit of history...
+
+In the beginning, libp2p assumed that calling `Close` on a stream would close
+the stream for both reading and writing. Unfortunately, *none* of our stream
+multiplexers actually behaved this way. In practice, `Close` always closed the
+stream for writing.
+
+After realizing this, we made two changes:
+
+1. We accepted the fact that `Close` only closed the stream for writing.
+2. We added a `Reset` method for killing the stream (closing it in both
+   directions, throwing away any buffered data).
+
+However, we ran into a bit of a snag because we try to track open streams and
+need some way to tell when a stream has been closed. In the past this was easy:
+when the user calls `Close` on the stream, stop tracking it. However, now that
+`Close` only closes the stream for writing, we still *technically* needed to
+track it until the *other* end closed the stream as well. Unfortunately, without
+actually reading from the stream, we have no way of knowing about this.
+Therefore, if the user calls `Close` on a stream and then walks away, we'd have
+to hang onto the stream indefinitely.
+
+Our solution was to simply stop tracking streams once they were closed for
+writing. This wasn't the *correct* behavior but it avoided leaking memory in the
+common case:
+
+1. The user calls `Close` and drops all references to the stream.
+2. The other end calls `Close` without writing any additional data.
+3. The stream multiplexer observes both closes and drops *its* reference to the stream.
+4. The garbage collector garbage collects the stream.
+
+However, this meant that:
+
+1. The list of "open" streams was technically incomplete.
+2. If the other side either failed to call `Close` or tried to send data before
+   closing, the stream would remain "open" (until the connection was closed).
+
+In this release, we've changed this behavior. Now, when you `Close` a stream for
+writing, libp2p *continues* to track it. We only stop tracking it when either:
+
+1. You call `Reset` (throwing away the stream).
+2. You finish reading any data off of it and observe either an EOF or an error.
+
+This way, we never "forget" about open streams or leave them in a half-forgotten
+state.
+
+In the future, I'd like to add a `CloseAndForget` method to streams that:
+
+1. Closes the stream (sends an EOF).
+2. Tells the swarm to stop tracking the stream.
+3. Tells the stream muxer to stop tracking the stream and throw away any data
+   the other side may send (possibly resetting the stream on unexpected data).
+
+However:
+
+1. This would likely require modifying our stream muxers which may not be
+   feasible.
+2. Explicitly waiting for an EOF is still the correct thing to do unless you
+   really don't care if the operation succeeded.
