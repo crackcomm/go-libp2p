@@ -90,6 +90,15 @@ Libp2p users should be aware of a few major changes.
 * Handling of half-closed streams has changed (READ THIS SECTION).
 * Some constructors and method signatures have changed slightly.
 
+#### Timeouts
+
+The maximum `DialTimeout` has been moved from go-libp2p-conn to go-libp2p-swarm
+(where it is now enforced).
+
+The maximum `AcceptTimeout` has been moved to go-libp2p-transport and is
+enforced by individual transports (and the go-libp2p-transport-upgrader when
+used).
+
 #### Bandwidth Metrics
 
 To start out on an unhappy note, bandwidth metrics are now less accurate. In the
@@ -114,7 +123,7 @@ guarantees libp2p connect/disconnect events:
 1. For any given connection/stream, libp2p will wait for all connect/open event
    handlers to finish exit before triggering a disconnect/close event for the
    connection/stream.
-2. When a user calls the `Close` (or `Reset`) method on a connection or stream,
+2. When a user calls the Close (or `Reset`) method on a connection or stream,
    go-libp2p will process the close event asynchronously (i.e., not block the
    call to `Close`). Otherwise, a call to `Close` from within a connect event
    handler would deadlock.
