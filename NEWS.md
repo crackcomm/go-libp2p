@@ -49,6 +49,15 @@ it's go-libp2p-swarm's job to keep track of which transports are supported
 We've also removed the associated `AddrUsable`, `FilterUsableAddrs`, and
 `AddrUsableFunc` functions.
 
+#### Pluggable Security Transports
+
+This release brings a new pluggable security transport framework. Implementing a
+new security framework is now as simple as:
+
+1. Implement the interfaces defined in
+   [go-conn-security](https://github.com/libp2p/go-conn-security).
+2. Pass it into the libp2p constructor using the `Security` option.
+
 ### For End Users
 
 Libp2p users should be aware of a few major changes.
