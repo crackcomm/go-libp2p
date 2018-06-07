@@ -147,7 +147,7 @@ GetStreams() []Stream
 Listing the streams on an open connection should never involve IO or do anything
 that can fail so we removed this error to improve usability.
 
-### Libp2p Constructor
+#### Libp2p Constructor
 
 If you're not already doing so, you should be using the `libp2p.New` constructor
 to make your libp2p nodes. This release brings quite a few new options to the
@@ -161,7 +161,7 @@ in one place, we've removed all default transports from go-libp2p-swarm.
 
 TL;DR: Please use the libp2p constructor.
 
-### Zombie Streams
+#### Zombie Streams
 
 From this release on, when you're done with a stream, you must either call
 `Reset` on it (in case of an error) or close it and read an EOF (or some other
