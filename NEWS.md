@@ -7,81 +7,11 @@ refactor of go-libp2p that paves the way for new transports such as QUIC.
 Unfortunately, as it is broad sweeping, there are some breaking changes,
 *especially* for maintainers of custom transports.
 
-Below, we cover the changes you'll likely care about.
+Below, we cover the changes you'll likely care about. For convenience, we've
+broken this into a section for users and transport authors/maintainers. However,
+transport maintainers should really read both sections.
 
-### For Transport Maintainers
-
-For transport maintainers, quite a bit has changed. Before this change,
-transports created simple, unencrypted, stream connections and it was the job of
-the libp2p Network (go-libp2p-swarm) to negotiate security, multiplexing, etc.
-
-However, when attempting to add support for the QUIC protocol, we realized that
-this was going to be a problem: QUIC already handles authentication and
-encryption (using TLS1.3) and multiplexing. After much debate, we inverted our
-current architecture and made transports responsible for encrypting/multiplexing
-their connections (before returning them).
-
-To make this palatable, we've also introduced a new ["upgrader"
-library](https://github.com/libp2p/go-libp2p-transport-upgrader) for upgrading
-go-multiaddr-net connections/listeners to full libp2p transport
-connections/listeners. Transports that don't support encryption/multiplexing out
-of the box can expect to have an upgrader passed into the constructor.
-
-To get a feel for how this new transport system works, take a look at the TCP
-and WebSocket transports and the transport interface documentation:
-
-* [TCP Transport](https://github.com/libp2p/go-tcp-transport)
-* [WebSocket Transport](https://github.com/libp2p/go-ws-transport)
-* [Transport Interface](https://godoc.org/github.com/libp2p/go-libp2p-transport)
-
-
-#### Deprecated Packages
-
-This release sees the deprecation of a few packages:
-
-* [go-peerstream](https://github.com/libp2p/go-peerstream) has been deprecated
-  and all functionality has been merged into `go-libp2p-swarm`. go-peerstream
-  was written as a general-purpose (not libp2p specific) listener, connection,
-  and stream manager. However, this package caused more problems than it solved
-  and was incompatible with the new transport interface.
-* [go-libp2p-interface-conn](https://github.com/libp2p/go-libp2p-interface-conn)
-  has been deprecated. These interfaces to bridge the gap between transport-level
-  connections and [go-libp2p-net](https://github.com/libp2p/go-libp2p-net)
-  connections however, now that transport connections are fully
-  multiplexed/encrypted, this is no longer needed.
-* [go-libp2p-conn](https://github.com/libp2p/go-libp2p-conn) has also been
-  deprecated and most of the functionality has been moved to
-  [go-libp2p-transport-upgrader](https://github.com/libp2p/go-libp2p-transport-upgrader).
-  This package used to provide connection "upgrade" logic for upgrading
-  transport-level connections to go-libp2p-interface-conn connections however,
-  transport-level connections now provide the required functionality out of the
-  box.
-
-#### go-addr-util
-
-In go-addr-util, we've removed the `SupportedTransportStrings` and
-`SupportedTransportProtocols` transport registries and the associated
-`AddTransport` function. These registries were updated by `init` functions in
-packages providing transports and were used to keep track of known transports.
-
-However, *importing* a transport doesn't mean any libp2p nodes have been
-configured to actually *use* that transport. Therefore, in the new go-libp2p,
-it's go-libp2p-swarm's job to keep track of which transports are supported
-(i.e., which transports have been registered with the swarm).
-
-We've also removed the associated `AddrUsable`, `FilterUsableAddrs`, and
-`AddrUsableFunc` functions.
-
-#### Pluggable Security Transports
-
-This release brings a new pluggable security transport framework. Implementing a
-new security framework is now as simple as:
-
-1. Implement the interfaces defined in
-   [go-conn-security](https://github.com/libp2p/go-conn-security).
-2. Pass it into the libp2p constructor using the `Security` option.
-
-### For End Users
+### For Users
 
 Libp2p users should be aware of a few major changes.
 
@@ -90,14 +20,18 @@ Libp2p users should be aware of a few major changes.
 * Handling of half-closed streams has changed (READ THIS SECTION).
 * Some constructors and method signatures have changed slightly.
 
-#### Timeouts
+#### Dialing And Source Addresses
 
-The maximum `DialTimeout` has been moved from go-libp2p-conn to go-libp2p-swarm
-(where it is now enforced).
+We've improved the logic that selects the source address when dialing. In the
+past, you may have run into an issue where you couldn't dial non-local nodes
+when listening on 127.0.0.1 as opposed to 0.0.0.0. This happened because
+go-libp2p would randomly pick the source address from the set of addresses on
+which the node was listening. We did this to ensure that the other end could
+dial us back at the same address. Unfortunately, one can't use 127.0.0.1 as a
+source address when dialing any non-local address so outbound dials failed.
 
-The maximum `AcceptTimeout` has been moved to go-libp2p-transport and is
-enforced by individual transports (and the go-libp2p-transport-upgrader when
-used).
+go-libp2p now tries to be smarter about this and avoids picking source addresses
+that have no route to the destination address.
 
 #### Bandwidth Metrics
 
@@ -111,9 +45,9 @@ transport layer, the connection we're wrapping has significantly more
 under-the-covers overhead.
 
 However, we do hope to improve this and get even *better* bandwidth metrics than
-we did before. See
-[libp2p/go-libp2p-transport#31](https://github.com/libp2p/go-libp2p-transport/issues/31)
-for details.
+we did before. See [libp2p/go-libp2p-transport#31][] for details.
+
+[libp2p/go-libp2p-transport#31]: https://github.com/libp2p/go-libp2p-transport/issues/31
 
 #### Notifications
 
@@ -185,8 +119,7 @@ If you're not already doing so, you should be using the `libp2p.New` constructor
 to make your libp2p nodes. This release brings quite a few new options to the
 libp2p constructor so if it hasn't been flexible enough for you in the past, I
 recommend that you try again. A simple example can be found in the
-[echo](https://github.com/libp2p/go-libp2p/tree/feat/refactor/examples/echo)
-example.
+[echo][example:echo] example.
 
 Given this work and in an attempt to consolidate all of our configuration logic
 in one place, we've removed all default transports from go-libp2p-swarm.
@@ -201,7 +134,7 @@ error). Otherwise, libp2p can't determine if the stream is *actually* closed and
 will hang onto it indefinitely.
 
 To make properly closing streams a bit easier, we've added two methods to
-[go-libp2p-net](https://godoc.org/github.com/libp2p/go-libp2p-net): `AwaitEOF`
+[go-libp2p-net][]://godoc.org/github.com/libp2p/go-libp2p-net): `AwaitEOF`
 and `FullClose`.
 
 * `AwaitEOF(stream)` tries to read a single byte from the stream. If `Read`
@@ -271,3 +204,102 @@ However:
    feasible.
 2. Explicitly waiting for an EOF is still the correct thing to do unless you
    really don't care if the operation succeeded.
+
+### For Transport Maintainers
+
+For transport maintainers, quite a bit has changed. Before this change,
+transports created simple, unencrypted, stream connections and it was the job of
+the libp2p Network (go-libp2p-swarm) to negotiate security, multiplexing, etc.
+
+However, when attempting to add support for the QUIC protocol, we realized that
+this was going to be a problem: QUIC already handles authentication and
+encryption (using TLS1.3) and multiplexing. After much debate, we inverted our
+current architecture and made transports responsible for encrypting/multiplexing
+their connections (before returning them).
+
+To make this palatable, we've also introduced a new ["upgrader"
+library][go-libp2p-transport-upgrader] for upgrading go-multiaddr-net
+connections/listeners to full libp2p transport connections/listeners. Transports
+that don't support encryption/multiplexing out of the box can expect to have an
+upgrader passed into the constructor.
+
+To get a feel for how this new transport system works, take a look at the TCP
+and WebSocket transports and the transport interface documentation:
+
+* [TCP Transport][go-tcp-transport]
+* [WebSocket Transport][go-ws-transport]
+* [Transport Interface][doc:go-libp2p-transport]
+
+#### Deprecated Packages
+
+This release sees the deprecation of a few packages:
+
+* [go-peerstream][] has been deprecated and all functionality has been merged
+  into [go-libp2p-swarm][]. [go-peerstream][] was written as a general-purpose
+  (not libp2p specific) listener, connection, and stream manager. However, this
+  package caused more problems than it solved and was incompatible with the new
+  transport interface.
+* [go-libp2p-interface-conn][] has been deprecated. These interfaces to bridge
+  the gap between transport-level connections and [go-libp2p-net][] connections
+  however, now that transport connections are fully multiplexed/encrypted, this
+  is no longer needed.
+* [go-libp2p-conn][] has also been deprecated and most of the functionality has
+  been moved to [go-libp2p-transport-upgrader][]. This package used to provide
+  connection "upgrade" logic for upgrading transport-level connections to
+  [go-libp2p-interface-conn][] connections however, transport-level connections
+  now provide the required functionality out of the box.
+
+#### Testing
+
+We've moved `GenSwarmNetwork` in [go-libp2p-netutil][] to `GenSwarm` in
+[go-libp2p-swarm/testing][] because:
+
+1. The swarm duplicated this exact function for its own tests.
+2. The swarm couldn't depend on [go-libp2p-netutil][] because
+   [go-libp2p-netutil][] depends on [go-libp2p-swarm][].
+
+We've also added a new transport test suit
+[go-libp2p-transport/test][]. If you implement a new transport, please consider
+testing against these suite. If you find a bug in an existing transport, please
+consider adding a test to this suite.
+
+#### go-addr-util
+
+In go-addr-util, we've removed the `SupportedTransportStrings` and
+`SupportedTransportProtocols` transport registries and the associated
+`AddTransport` function. These registries were updated by `init` functions in
+packages providing transports and were used to keep track of known transports.
+
+However, *importing* a transport doesn't mean any libp2p nodes have been
+configured to actually *use* that transport. Therefore, in the new go-libp2p,
+it's go-libp2p-swarm's job to keep track of which transports are supported
+(i.e., which transports have been registered with the swarm).
+
+We've also removed the associated `AddrUsable`, `FilterUsableAddrs`, and
+`AddrUsableFunc` functions.
+
+#### Pluggable Security Transports
+
+This release brings a new pluggable security transport framework. Implementing a
+new security framework is now as simple as:
+
+1. Implement the interfaces defined in [go-conn-security][].
+2. Pass it into the libp2p constructor using the `Security` option.
+
+[go-conn-security]: https://github.com/libp2p/go-conn-security
+[go-libp2p-conn]: https://github.com/libp2p/go-libp2p-conn
+[go-libp2p-interface-conn]: https://github.com/libp2p/go-libp2p-interface-conn
+[go-libp2p-net]: https://github.com/libp2p/go-libp2p-net
+[go-libp2p-netutil]: https://github.com/libp2p/go-libp2p/go-libp2p-netutil
+[go-libp2p-swarm]: https://github.com/libp2p/go-libp2p/go-libp2p-swarm
+[go-libp2p-swarm/testing]: https://github.com/libp2p/go-libp2p/go-libp2p-swarm/testing
+[go-libp2p-transport]: https://github.com/libp2p/go-libp2p-transport
+[go-libp2p-transport/test]: https://github.com/libp2p/go-libp2p-transport/test
+[go-libp2p-transport-upgrader]: https://github.com/libp2p/go-libp2p-transport-upgrader
+[go-peerstream]: https://github.com/libp2p/go-peerstream
+[go-tcp-transport]: https://github.com/libp2p/go-tcp-transport
+[go-ws-transport]: https://github.com/libp2p/go-ws-transport
+
+[example:echo]: https://github.com/libp2p/go-libp2p/tree/feat/refactor/examples/echo
+
+[doc:go-libp2p-transport]: https://godoc.org/github.com/libp2p/go-libp2p-transport
